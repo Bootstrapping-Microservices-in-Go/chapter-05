@@ -1,0 +1,36 @@
+version: "3"
+services:
+  db:
+    image: mongo:7
+    container_name: db
+    ports:
+      - "4000:27017"
+    restart: always
+
+  video-streaming:
+    image: video-streaming
+    build:
+      context: ./video-streaming
+      dockerfile: Dockerfile
+    container_name: video-streaming
+    ports:
+      - "4001:80"
+    environment:
+      - PORT=80
+    restart: "no"
+
+  history:
+    image: history
+    build:
+      context: ./history
+      dockerfile: Dockerfile
+    container_name: history
+    ports:
+      - "4002:80"
+    environment:
+      - PORT=80
+      - DBHOST=db
+      - DBNAME=video-streaming
+    depends_on:
+      - db
+    restart: "no"
