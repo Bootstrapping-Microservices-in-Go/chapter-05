@@ -37,10 +37,14 @@ func main() {
 		var msgBody viewedMessageBody
 		if err := json.NewDecoder(r.Body).Decode(&msgBody); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
+			log.Print(`Unable to decode `, msgBody)
+			return
 		}
+		defer r.Body.Close()
 
 		collection.InsertOne(context.TODO(), bson.D{{`videoPath`, msgBody}})
 		w.WriteHeader(http.StatusOK)
+		log.Print(`Recorded  `, msgBody.VideoPath)
 	})
 
 	http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
