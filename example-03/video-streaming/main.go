@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -10,6 +9,7 @@ import (
 	"strconv"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 const (
@@ -18,7 +18,7 @@ const (
 )
 
 type viewedMessageBody struct {
-	VideoPath string `json:"videoPath"`
+	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
 func failOnError(err error, msg string) {
@@ -33,26 +33,16 @@ func sendViewedMessage(path string, channel *amqp.Channel, queue *amqp.Queue) {
 		VideoPath: path,
 	}
 
-	payload, err := json.Marshal(body)
+	payload, err := bson.Marshal(body)
 	if err != nil {
 		return
 	}
 
 	err = channel.Publish("", queue.Name, false, false, amqp.Publishing{
-		ContentType: `application/json`,
+		ContentType: `application/bson`,
 		Body:        payload,
 	})
 	failOnError(err, "Unable to publish to RabbitMQ channel")
-
-	// req, err := http.NewRequest(http.MethodPost, `http://history/viewed`, bytes.NewReader(payload))
-	// if err != nil {
-	// 	return
-	// }
-	// req.Header.Set(contentType, `application/json`)
-
-	// client := &http.Client{}
-	// _, err = client.Do(req)
-	// log.Print("Viewed")
 }
 
 func main() {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -75,7 +74,7 @@ func main() {
 	go func() {
 		for d := range msgs {
 			var msgBody viewedMessageBody
-			json.Unmarshal(d.Body, &msgBody)
+			bson.Unmarshal(d.Body, &msgBody)
 
 			// Add to Mongo
 			res, err := collection.InsertOne(context.TODO(), msgBody)
