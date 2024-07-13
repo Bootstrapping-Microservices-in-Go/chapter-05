@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 )
 
 type viewedMessageBody struct {
-	VideoPath string `json:"videoPath"`
+	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
 func failOnError(err error, msg string) {
@@ -73,10 +74,11 @@ func main() {
 
 	go func() {
 		for d := range msgs {
+			var msgBody viewedMessageBody
+			json.Unmarshal(d.Body, &msgBody)
+
 			// Add to Mongo
-			res, err := collection.InsertOne(context.TODO(), bson.M{
-				"body": d.Body,
-			})
+			res, err := collection.InsertOne(context.TODO(), msgBody)
 			failOnError(err, `Failed on insertion`)
 			log.Println(res.InsertedID)
 		}
