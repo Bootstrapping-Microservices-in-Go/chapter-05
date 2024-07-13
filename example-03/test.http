@@ -1,0 +1,6 @@
+# Test history
+GET http://localhost:4002/history?limit=1&skip=0
+
+
+# Test video-streaming
+HEAD http://localhost:4001/video
