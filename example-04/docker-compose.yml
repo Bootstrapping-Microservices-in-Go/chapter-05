@@ -1,0 +1,49 @@
+services:
+  db:
+    image: mongo:7
+    container_name: db
+    ports:
+      - "4000:27017"
+    restart: always
+
+  rabbit:
+    image: rabbitmq:3.12.4-management
+    container_name: rabbit
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: always
+
+  video-streaming:
+    image: video-streaming
+    build:
+      context: ./video-streaming
+      dockerfile: Dockerfile
+    container_name: video-streaming
+    ports:
+      - "4001:80"
+    environment:
+      - PORT=80
+      - RABBIT=amqp://guest:guest@rabbit:5672
+    depends_on:
+      - rabbit
+      - history
+    restart: "no"
+
+  history:
+    image: history
+    build:
+      context: ./history
+      dockerfile: Dockerfile
+    container_name: history
+    ports:
+      - "4002:80"
+    environment:
+      - PORT=80
+      - DBHOST=mongodb://db:27017/
+      - DBNAME=video-streaming
+      - RABBIT=amqp://guest:guest@rabbit:5672
+    depends_on:
+      - db
+      - rabbit
+    restart: "no"
