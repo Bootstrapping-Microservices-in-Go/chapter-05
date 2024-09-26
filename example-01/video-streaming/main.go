@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,18 +15,26 @@ const (
 )
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := run(logger); err != nil {
+		logger.Error(`[fatal]`, `err`, err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger) error {
 	port, found := os.LookupEnv(`PORT`)
 	if !found {
-		log.Fatal(`Please specify the port number for the HTTP server with the environment variable PORT.`)
+		fmt.Errorf(`Please specify the port number for the HTTP server with the environment variable PORT.`)
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /video", func(w http.ResponseWriter, r *http.Request) {
-		log.Print("Found")
 		videoPath := "./videos/SampleVideo_1280x720_1mb.mp4"
 		videoReader, err := os.Open(videoPath)
 		if err != nil {
-			log.Print("Not Found")
+			log.Error("Not Found")
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -43,5 +51,7 @@ func main() {
 		io.Copy(w, videoReader)
 	})
 
-	http.ListenAndServe(fmt.Sprint(":", port), mux)
+	log.Info(`Microservice online`)
+	return http.ListenAndServe(fmt.Sprint(":", port), mux)
+
 }
