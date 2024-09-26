@@ -93,7 +93,7 @@ func main() {
 		}
 	}()
 
-	// The viewed handler is no longer necessary since we're ulling from the
+	// The viewed handler is no longer necessary since we're pulling from the
 	// queue.  But we do need an endpoint that will print our view history.
 	mux := http.NewServeMux()
 	mux.HandleFunc(`GET /history`, func(w http.ResponseWriter, r *http.Request) {

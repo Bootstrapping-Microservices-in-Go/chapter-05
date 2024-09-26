@@ -1,25 +1,35 @@
 version: "3"
 services:
   video-streaming:
-    image: video-streaming
-    build:
-      context: ./video-streaming
-      dockerfile: Dockerfile
+    image: cosmtrek/air
+    working_dir: /project-package/
     container_name: video-streaming
     ports:
       - "4000:80"
+    volumes:
+      - ./video-streaming/:/project-package/
     environment:
       - PORT=80
-    restart: "no"
 
   history:
-    image: video-streaming
-    build:
-      context: ./history
-      dockerfile: Dockerfile
+    image: cosmtrek/air
+    working_dir: /project-package/
     container_name: history
     ports:
       - "4001:80"
+    volumes:
+      - ./history/:/project-package/
     environment:
       - PORT=80
     restart: "no"
+  # history:
+  #   image: history
+  #   build:
+  #     context: ./history
+  #     dockerfile: Dockerfile
+  #   container_name: history
+  #   ports:
+  #     - "4001:80"
+  #   environment:
+  #     - PORT=80
+  #   restart: "no"

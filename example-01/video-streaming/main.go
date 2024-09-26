@@ -47,11 +47,10 @@ func run(log *slog.Logger) error {
 
 		w.Header().Add(contentLength, strconv.FormatInt(videoStats.Size(), 10))
 		w.Header().Add(contentType, "video/mp4")
-		// use io.Copy for streaming.
 		io.Copy(w, videoReader)
 	})
 
-	log.Info(`Microservice online`)
+	log.Info(`Microservice online!`)
 	return http.ListenAndServe(fmt.Sprint(":", port), mux)
 
 }
