@@ -7,6 +7,5 @@ RUN go build -o main .
 FROM scratch
 WORKDIR /
 COPY --from=builder /src/main /
-COPY --from=builder /src/videos /videos
 ENV PORT 8080
 ENTRYPOINT ["/main"]

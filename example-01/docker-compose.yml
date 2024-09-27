@@ -4,19 +4,21 @@ services:
     image: video-streaming
     build:
       context: ./video-streaming
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: video-streaming
     ports:
       - "4000:80"
+    volumes:
+      - ./video-streaming:/src
     environment:
       - PORT=80
     restart: "no"
 
   history:
-    image: video-streaming
+    image: history
     build:
       context: ./history
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: history
     ports:
       - "4001:80"
