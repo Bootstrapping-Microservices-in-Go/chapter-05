@@ -7,14 +7,20 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const (
+	contentLength = "Content-Length"
+	contentType   = "Content-Type"
+)
+
 type viewedMessageBody struct {
-	VideoPath string `json:"videoPath"`
+	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
 func main() {
@@ -34,18 +40,69 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(`POST /viewed`, func(w http.ResponseWriter, r *http.Request) {
-		var msgBody viewedMessageBody
-		if err := json.NewDecoder(r.Body).Decode(&msgBody); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			log.Print(`Unable to decode `, msgBody)
+		// use json.NewDecoder().Decode() to get videoPath
+		var messageBody viewedMessageBody
+		err := json.NewDecoder(r.Body).Decode(&messageBody)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		defer r.Body.Close()
 
-		collection.InsertOne(context.TODO(), bson.D{{`videoPath`, msgBody}})
+		// insertOne in history collection.
+		_, err = collection.InsertOne(r.Context(), bson.M{`videoPath`: messageBody.VideoPath})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// print Added video ${videoPath} to history.
+		log.Printf(`Added video %s to history.`, messageBody.VideoPath)
+
 		w.WriteHeader(http.StatusOK)
-		log.Print(`Recorded  `, msgBody.VideoPath)
+
+		// Send a POST request to http://history/viewed
+		// JSON-encoded.  On failure: Failed to send 'viewed' message!
+		// On success: Sent 'viewed' message to history microservice.
 	})
 
+	mux.HandleFunc(`GET /history`, func(w http.ResponseWriter, r *http.Request) {
+		skip := r.FormValue(`skip`)
+		skipInt, err := strconv.Atoi(skip)
+		if err != nil {
+			w.WriteHeader(http.StatusNotAcceptable)
+			return
+		}
+		limit := r.FormValue(`limit`)
+		limitInt, err := strconv.Atoi(limit)
+		if err != nil {
+			w.WriteHeader(http.StatusNotAcceptable)
+			return
+		}
+
+		findOptions := options.Find()
+		findOptions.SetSkip(int64(skipInt))
+		findOptions.SetLimit(int64(limitInt))
+
+		cursor, err := collection.Find(context.Background(), bson.D{}, findOptions)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer cursor.Close(context.Background())
+
+		var history []viewedMessageBody
+		if err := cursor.All(context.Background(), &history); err != nil {
+			log.Fatal(err)
+		}
+
+		json.NewEncoder(w).Encode(history)
+
+		// Send a GET request to http://history/history
+		// skip, limit parameters.
+		// Return as json.NewEncoder().Encode(history)
+		// return 200.
+	})
+
+	log.Println(`Microservice online!`)
 	http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
 }

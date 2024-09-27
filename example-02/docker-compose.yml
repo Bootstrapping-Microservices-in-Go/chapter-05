@@ -11,10 +11,12 @@ services:
     image: video-streaming
     build:
       context: ./video-streaming
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: video-streaming
     ports:
       - "4001:80"
+    volumes:
+      - ./video-streaming:/src
     environment:
       - PORT=80
     restart: "no"
@@ -23,10 +25,12 @@ services:
     image: history
     build:
       context: ./history
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: history
     ports:
       - "4002:80"
+    volumes:
+      - ./history:/src
     environment:
       - PORT=80
       - DBHOST=mongodb://db:27017/
