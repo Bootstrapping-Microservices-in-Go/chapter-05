@@ -61,14 +61,24 @@ func main() {
 	failOnError(err, "Failed to declare an exchange")
 
 	q, err := ch.QueueDeclare(
-		"viewed_queue", // name
-		true,           // durable
-		false,          // delete when unused
-		false,          // exclusive
-		false,          // no-wait
-		nil,            // arguments
+		``,    // name
+		true,  // durable
+		false, // delete when unused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
 	)
 	failOnError(err, "Failed to declare a queue")
+
+	// Bind the queue to the exchange.
+	err = ch.QueueBind(
+		q.Name,
+		``,
+		`Viewed`,
+		false,
+		nil,
+	)
+	failOnError(err, `Failed to bind queue to exchange`)
 
 	msgs, err := ch.Consume(
 		q.Name, // queue
