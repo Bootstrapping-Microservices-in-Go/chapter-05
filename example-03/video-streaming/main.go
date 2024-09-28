@@ -21,7 +21,7 @@ type viewedMessageBody struct {
 	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
-func failOnError(err error, msg string) {
+func failWitnError(err error, msg string) {
 	if err != nil {
 		log.Panicf("%s: %s", msg, err)
 	}
@@ -42,7 +42,7 @@ func sendViewedMessage(path string, channel *amqp.Channel, queue *amqp.Queue) {
 		ContentType: `application/bson`,
 		Body:        payload,
 	})
-	failOnError(err, "Unable to publish to RabbitMQ channel")
+	failWitnError(err, "Unable to publish to RabbitMQ channel")
 }
 
 func main() {
@@ -55,12 +55,12 @@ func main() {
 
 	// Connect to RabbitMQ
 	conn, err := amqp.Dial(rabbit)
-	failOnError(err, "Failed to connect to RabbitMQ")
+	failWitnError(err, "Failed to connect to RabbitMQ")
 	defer conn.Close()
 
 	// Now we need to connect to the queue, consume messages.
 	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
+	failWitnError(err, "Failed to open a channel")
 	defer ch.Close()
 
 	q, err := ch.QueueDeclare(
@@ -71,7 +71,7 @@ func main() {
 		false,    // no-wait
 		nil,      // arguments
 	)
-	failOnError(err, "Failed to declare a queue")
+	failWitnError(err, "Failed to declare a queue")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /video", func(w http.ResponseWriter, r *http.Request) {

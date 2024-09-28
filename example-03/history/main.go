@@ -18,9 +18,12 @@ type viewedMessageBody struct {
 	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
-func failOnError(err error, msg string) {
+func failWithError(err error, msg string, fatal bool) {
 	if err != nil {
 		log.Printf("%s: %s", msg, err)
+	}
+	if fatal {
+		os.Exit(2)
 	}
 }
 
@@ -35,19 +38,19 @@ func main() {
 	clientOpts := options.Client().
 		ApplyURI(dbhost)
 	client, err := mongo.Connect(context.TODO(), clientOpts)
-	failOnError(err, "Failed to connect to MongoDB")
+	failWithError(err, "Failed to connect to MongoDB", true)
 
 	collection := client.Database(dbname).Collection(`history`)
 	defer client.Disconnect(context.TODO())
 
 	// Connect to RabbitMQ
 	conn, err := amqp.Dial(rabbit)
-	failOnError(err, "Failed to connect to RabbitMQ")
+	failWithError(err, "Failed to connect to RabbitMQ", true)
 	defer conn.Close()
 
 	// Now we need to connect to the queue, consume messages.
 	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
+	failWithError(err, "Failed to open a channel", true)
 	defer ch.Close()
 
 	q, err := ch.QueueDeclare(
@@ -58,7 +61,7 @@ func main() {
 		false,    // no-wait
 		nil,      // arguments
 	)
-	failOnError(err, "Failed to declare a queue")
+	failWithError(err, "Failed to declare a queue", true)
 
 	msgs, err := ch.Consume(
 		q.Name, // queue
@@ -69,7 +72,7 @@ func main() {
 		false,  // no-wait
 		nil,    // args
 	)
-	failOnError(err, "Failed to register a consumer")
+	failWithError(err, "Failed to register a consumer", true)
 
 	go func() {
 		for d := range msgs {
@@ -78,12 +81,13 @@ func main() {
 
 			// Add to Mongo
 			res, err := collection.InsertOne(context.TODO(), msgBody)
-			failOnError(err, `Failed on insertion`)
+			failWithError(err, `Failed on insertion`, false)
 			log.Println(res.InsertedID)
+			d.Ack(true)
 		}
 	}()
 
-	// The viewed handler is no longer necessary since we're ulling from the
+	// The viewed handler is no longer necessary since we're pulling from the
 	// queue.  But we do need an endpoint that will print our view history.
 	mux := http.NewServeMux()
 	mux.HandleFunc(`GET /history`, func(w http.ResponseWriter, r *http.Request) {
@@ -96,14 +100,14 @@ func main() {
 			SetLimit(int64(limitInt))
 
 		cursor, err := collection.Find(context.TODO(), bson.D{}, findOptions)
-		failOnError(err, `fail on find`)
+		failWithError(err, `fail on find`, false)
 
 		var results []struct {
 			VideoPath string
 		}
 
 		err = cursor.All(context.TODO(), &results)
-		failOnError(err, `fail on cursor decoding`)
+		failWithError(err, `fail on cursor decoding`, false)
 
 		for _, result := range results {
 			log.Println(result)
