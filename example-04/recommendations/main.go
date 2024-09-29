@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -14,13 +14,16 @@ type viewedMessageBody struct {
 	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
-func failOnError(err error, msg string) {
-	if err != nil {
-		log.Printf("%s: %s", msg, err)
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := run(logger); err != nil {
+		logger.Error(`run failed`, `err`, err.Error())
+		os.Exit(1)
 	}
 }
 
-func main() {
+func run(log *slog.Logger) error {
 	port := os.Getenv(`PORT`)
 	// dbhost := os.Getenv(`DBHOST`)
 	// dbname := os.Getenv(`DBNAME`)
@@ -31,19 +34,19 @@ func main() {
 	// clientOpts := options.Client().
 	// 	ApplyURI(dbhost)
 	// client, err := mongo.Connect(context.TODO(), clientOpts)
-	// failOnError(err, "Failed to connect to MongoDB")
+	// failWithError(log, err, "Failed to connect to MongoDB")
 
 	// collection := client.Database(dbname).Collection(`history`)
 	// defer client.Disconnect(context.TODO())
 
 	// Connect to RabbitMQ
 	conn, err := amqp.Dial(rabbit)
-	failOnError(err, "Failed to connect to RabbitMQ")
+	failWithError(log, err, `amqp.Dial`)
 	defer conn.Close()
 
 	// Now we need to connect to the queue, consume messages.
 	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
+	failWithError(log, err, `conn.Channel`)
 	defer ch.Close()
 
 	err = ch.ExchangeDeclare(
@@ -54,7 +57,7 @@ func main() {
 		false,
 		false,
 		nil)
-	failOnError(err, "Failed to declare an exchange")
+	failWithError(log, err, `ch.ExchangeDeclare`)
 
 	q, err := ch.QueueDeclare(
 		``,    // name
@@ -64,7 +67,7 @@ func main() {
 		false, // no-wait
 		nil,   // arguments
 	)
-	failOnError(err, "Failed to declare a queue")
+	failWithError(log, err, `ch.QueueDeclare`)
 
 	// Bind the queue to the exchange.
 	err = ch.QueueBind(
@@ -74,7 +77,7 @@ func main() {
 		false,
 		nil,
 	)
-	failOnError(err, `Failed to bind queue to exchange`)
+	failWithError(log, err, `ch.QueueBind`)
 
 	msgs, err := ch.Consume(
 		q.Name, // queue
@@ -85,19 +88,25 @@ func main() {
 		false,  // no-wait
 		nil,    // args
 	)
-	failOnError(err, "Failed to register a consumer")
+	failWithError(log, err, "Failed to register a consumer")
 
 	go func() {
 		for d := range msgs {
 			var msgBody viewedMessageBody
 			bson.Unmarshal(d.Body, &msgBody)
 
-			log.Println(`Revieved a 'viewed' message.`)
-			// d.Ack(false)
+			log.Info(`'viewed' message ack.`)
 		}
 	}()
 
 	mux := http.NewServeMux()
-	log.Println(`Microservice online!`)
-	http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
+	log.Info(`Microservice online!`)
+	return http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
+}
+
+func failWithError(log *slog.Logger, err error, msg string) {
+	if err != nil {
+		log.Error(msg, `error`, err)
+		os.Exit(2)
+	}
 }

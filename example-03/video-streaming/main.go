@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -21,46 +21,31 @@ type viewedMessageBody struct {
 	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
-func failWitnError(err error, msg string) {
-	if err != nil {
-		log.Panicf("%s: %s", msg, err)
-	}
-}
-
-func sendViewedMessage(path string, channel *amqp.Channel, queue *amqp.Queue) {
-	// Refactor to send to RabbitMQ.
-	body := viewedMessageBody{
-		VideoPath: path,
-	}
-
-	payload, err := bson.Marshal(body)
-	if err != nil {
-		return
-	}
-
-	err = channel.Publish("", queue.Name, false, false, amqp.Publishing{
-		ContentType: `application/bson`,
-		Body:        payload,
-	})
-	failWitnError(err, "Unable to publish to RabbitMQ channel")
-}
-
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := run(logger); err != nil {
+		logger.Error(`run failed`, `err`, err.Error())
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger) error {
 	port, found := os.LookupEnv(`PORT`)
 	if !found {
-		log.Fatal(`Please specify the port number for the HTTP server with the environment variable PORT.`)
+		return fmt.Errorf(`Please specify the port number for the HTTP server with the environment variable PORT.`)
 	}
 
 	rabbit := os.Getenv(`RABBIT`)
 
 	// Connect to RabbitMQ
 	conn, err := amqp.Dial(rabbit)
-	failWitnError(err, "Failed to connect to RabbitMQ")
+	failWithError(log, err, `amqp.Dial`)
 	defer conn.Close()
 
 	// Now we need to connect to the queue, consume messages.
 	ch, err := conn.Channel()
-	failWitnError(err, "Failed to open a channel")
+	failWithError(log, err, `conn.Channel`)
 	defer ch.Close()
 
 	q, err := ch.QueueDeclare(
@@ -71,15 +56,13 @@ func main() {
 		false,    // no-wait
 		nil,      // arguments
 	)
-	failWitnError(err, "Failed to declare a queue")
+	failWithError(log, err, `ch.QueueDeclare`)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /video", func(w http.ResponseWriter, r *http.Request) {
-		log.Print("Found")
 		videoPath := "./videos/SampleVideo_1280x720_1mb.mp4"
 		videoReader, err := os.Open(videoPath)
 		if err != nil {
-			log.Print("Not Found")
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -94,8 +77,33 @@ func main() {
 		w.Header().Add(contentType, "video/mp4")
 		// use io.Copy for streaming.
 		io.Copy(w, videoReader)
-		sendViewedMessage(videoPath, ch, &q)
+		sendViewedMessage(log, videoPath, ch, &q)
 	})
 
-	http.ListenAndServe(fmt.Sprint(":", port), mux)
+	return http.ListenAndServe(fmt.Sprint(":", port), mux)
+}
+
+func sendViewedMessage(log *slog.Logger, path string, channel *amqp.Channel, queue *amqp.Queue) {
+	// Refactor to send to RabbitMQ.
+	body := viewedMessageBody{
+		VideoPath: path,
+	}
+
+	payload, err := bson.Marshal(body)
+	if err != nil {
+		return
+	}
+
+	err = channel.Publish("", queue.Name, false, false, amqp.Publishing{
+		ContentType: `application/bson`,
+		Body:        payload,
+	})
+	failWithError(log, err, `channel.Publish`)
+}
+
+func failWithError(log *slog.Logger, err error, msg string) {
+	if err != nil {
+		log.Error(msg, `error`, err)
+		os.Exit(2)
+	}
 }

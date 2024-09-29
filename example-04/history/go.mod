@@ -1,6 +1,6 @@
 module github.com/bootstrapping-microservices-in-go/chapter-05/example-3/history
 
-go 1.22.0
+go 1.23.1
 
 require (
 	github.com/rabbitmq/amqp091-go v1.10.0

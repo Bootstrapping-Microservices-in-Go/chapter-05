@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,16 +18,16 @@ type viewedMessageBody struct {
 	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
-func failWithError(err error, msg string, fatal bool) {
-	if err != nil {
-		log.Printf("%s: %s", msg, err)
-	}
-	if fatal {
-		os.Exit(2)
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := run(logger); err != nil {
+		logger.Error(`run failed`, `err`, err.Error())
+		os.Exit(1)
 	}
 }
 
-func main() {
+func run(log *slog.Logger) error {
 	port := os.Getenv(`PORT`)
 	dbhost := os.Getenv(`DBHOST`)
 	dbname := os.Getenv(`DBNAME`)
@@ -38,19 +38,19 @@ func main() {
 	clientOpts := options.Client().
 		ApplyURI(dbhost)
 	client, err := mongo.Connect(context.TODO(), clientOpts)
-	failWithError(err, "Failed to connect to MongoDB", true)
+	failWithError(log, err, `mongo.Connect`)
 
 	collection := client.Database(dbname).Collection(`history`)
 	defer client.Disconnect(context.TODO())
 
 	// Connect to RabbitMQ
 	conn, err := amqp.Dial(rabbit)
-	failWithError(err, "Failed to connect to RabbitMQ", true)
+	failWithError(log, err, `amqp.Dial`)
 	defer conn.Close()
 
 	// Now we need to connect to the queue, consume messages.
 	ch, err := conn.Channel()
-	failWithError(err, "Failed to open a channel", true)
+	failWithError(log, err, `conn.Channel`)
 	defer ch.Close()
 
 	q, err := ch.QueueDeclare(
@@ -61,7 +61,7 @@ func main() {
 		false,    // no-wait
 		nil,      // arguments
 	)
-	failWithError(err, "Failed to declare a queue", true)
+	failWithError(log, err, `ch.QueueDeclare`)
 
 	msgs, err := ch.Consume(
 		q.Name, // queue
@@ -72,7 +72,7 @@ func main() {
 		false,  // no-wait
 		nil,    // args
 	)
-	failWithError(err, "Failed to register a consumer", true)
+	failWithError(log, err, `ch.Consume`)
 
 	go func() {
 		for d := range msgs {
@@ -81,8 +81,8 @@ func main() {
 
 			// Add to Mongo
 			res, err := collection.InsertOne(context.TODO(), msgBody)
-			failWithError(err, `Failed on insertion`, false)
-			log.Println(res.InsertedID)
+			failWithError(log, err, `collection.InsertOne`)
+			slog.Info(`collection.InsertOne`, `insertedId`, res.InsertedID)
 			d.Ack(true)
 		}
 	}()
@@ -100,19 +100,32 @@ func main() {
 			SetLimit(int64(limitInt))
 
 		cursor, err := collection.Find(context.TODO(), bson.D{}, findOptions)
-		failWithError(err, `fail on find`, false)
+		warnOnNonFatalError(log, err, `/history.collection.Find`)
 
 		var results []struct {
 			VideoPath string
 		}
 
 		err = cursor.All(context.TODO(), &results)
-		failWithError(err, `fail on cursor decoding`, false)
+		warnOnNonFatalError(log, err, `/history.Cursor.All`)
 
 		for _, result := range results {
-			log.Println(result)
+			log.Info(`cursor.All`, `videoPath`, result.VideoPath)
 		}
 	})
 
-	http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
+	return http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
+}
+
+func warnOnNonFatalError(log *slog.Logger, err error, msg string) {
+	if err != nil {
+		log.Error(msg, `error`, err)
+	}
+}
+
+func failWithError(log *slog.Logger, err error, msg string) {
+	if err != nil {
+		log.Error(msg, `error`, err)
+		os.Exit(2)
+	}
 }
