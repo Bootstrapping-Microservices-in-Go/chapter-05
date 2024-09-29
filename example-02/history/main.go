@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -24,6 +24,14 @@ type viewedMessageBody struct {
 }
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := run(logger); err != nil {
+		logger.Error(`run failed`, `err`, err.Error())
+	}
+}
+
+func run(log *slog.Logger) error {
 	port := os.Getenv(`PORT`)
 	dbhost := os.Getenv(`DBHOST`)
 	dbname := os.Getenv(`DBNAME`)
@@ -34,7 +42,7 @@ func main() {
 		ApplyURI(dbhost)
 	client, err := mongo.Connect(context.TODO(), clientOpts)
 	if err != nil {
-		log.Fatal("failed to connect to MongoDB", err)
+		return fmt.Errorf("failed to connect to MongoDB: %s", err)
 	}
 	collection := client.Database(dbname).Collection(`history`)
 
@@ -45,6 +53,7 @@ func main() {
 		err := json.NewDecoder(r.Body).Decode(&messageBody)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Error(`/viewed.Decode`, `err`, err.Error())
 			return
 		}
 
@@ -52,11 +61,12 @@ func main() {
 		_, err = collection.InsertOne(r.Context(), bson.M{`videoPath`: messageBody.VideoPath})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Error(`/viewed.collection.Insert`, `err`, err.Error())
 			return
 		}
 
 		// print Added video ${videoPath} to history.
-		log.Printf(`Added video %s to history.`, messageBody.VideoPath)
+		log.Info(`add`, `videoPath`, messageBody.VideoPath)
 
 		w.WriteHeader(http.StatusOK)
 
@@ -86,13 +96,16 @@ func main() {
 		cursor, err := collection.Find(context.Background(), bson.D{}, findOptions)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
+			log.Error(`/history.collection.Find`, `err`, err.Error())
 			return
 		}
 		defer cursor.Close(context.Background())
 
 		var history []viewedMessageBody
 		if err := cursor.All(context.Background(), &history); err != nil {
-			log.Fatal(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Error(`/history.cursor.All`, `err`, err.Error())
+			return
 		}
 
 		json.NewEncoder(w).Encode(history)
@@ -103,6 +116,6 @@ func main() {
 		// return 200.
 	})
 
-	log.Println(`Microservice online!`)
-	http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
+	log.Info(`Microservice online!`)
+	return http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
 }

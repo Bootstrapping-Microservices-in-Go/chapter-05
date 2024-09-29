@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,6 +19,47 @@ const (
 
 type viewedMessageBody struct {
 	VideoPath string `json:"videoPath"`
+}
+
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := run(logger); err != nil {
+		logger.Error(`run failed`, `err`, err.Error())
+	}
+}
+
+func run(log *slog.Logger) error {
+	port, found := os.LookupEnv(`PORT`)
+	if !found {
+		log.Fatal(`Please specify the port number for the HTTP server with the environment variable PORT.`)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /video", func(w http.ResponseWriter, r *http.Request) {
+		videoPath := "./videos/SampleVideo_1280x720_1mb.mp4"
+		videoReader, err := os.Open(videoPath)
+		if err != nil {
+			log.Error(`/video.os.Open`, `err`, err.Error())
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		defer videoReader.Close()
+		videoStats, err := videoReader.Stat()
+		if err != nil {
+			log.Error(`/videoReader.stat`, `err`, err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Add(contentLength, strconv.FormatInt(videoStats.Size(), 10))
+		w.Header().Add(contentType, "video/mp4")
+		// use io.Copy for streaming.
+		io.Copy(w, videoReader)
+		sendViewedMessage(videoPath)
+	})
+
+	http.ListenAndServe(fmt.Sprint(":", port), mux)
 }
 
 func sendViewedMessage(path string) {
@@ -39,37 +81,4 @@ func sendViewedMessage(path string) {
 	client := &http.Client{}
 	_, err = client.Do(req)
 	log.Print("Viewed")
-}
-
-func main() {
-	port, found := os.LookupEnv(`PORT`)
-	if !found {
-		log.Fatal(`Please specify the port number for the HTTP server with the environment variable PORT.`)
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /video", func(w http.ResponseWriter, r *http.Request) {
-		log.Print("Found")
-		videoPath := "./videos/SampleVideo_1280x720_1mb.mp4"
-		videoReader, err := os.Open(videoPath)
-		if err != nil {
-			log.Print("Not Found")
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		defer videoReader.Close()
-		videoStats, err := videoReader.Stat()
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Add(contentLength, strconv.FormatInt(videoStats.Size(), 10))
-		w.Header().Add(contentType, "video/mp4")
-		// use io.Copy for streaming.
-		io.Copy(w, videoReader)
-		sendViewedMessage(videoPath)
-	})
-
-	http.ListenAndServe(fmt.Sprint(":", port), mux)
 }

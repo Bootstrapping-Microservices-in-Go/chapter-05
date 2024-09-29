@@ -1,6 +1,6 @@
 module github.com/bootstrapping-microservices-in-go/chapter-05/example-2/history
 
-go 1.22.0
+go 1.23.0
 
 require go.mongodb.org/mongo-driver v1.16.0
 
