@@ -51,3 +51,23 @@ services:
       - db
       - rabbit
     restart: "no"
+
+  recommendations:
+    image: recommendations
+    build:
+      context: ./recommendations
+      dockerfile: Dockerfile.dev
+    container_name: recommendations
+    ports:
+      - "4003:80"
+    volumes:
+      - ./recommendations:/src
+    environment:
+      - PORT=80
+      # - DBHOST=mongodb://db:27017/
+      # - DBNAME=video-streaming
+      - RABBIT=amqp://guest:guest@rabbit:5672
+    depends_on:
+      - db
+      - rabbit
+    restart: "no"
