@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -30,7 +29,7 @@ func main() {
 	}
 }
 
-func sendViewedMessage(videoPath string) {
+func sendViewedMessage(log *slog.Logger, videoPath string) {
 	// Create the request body
 	viewedMessageBody := viewedMessageBody{
 		VideoPath: videoPath,
@@ -65,7 +64,7 @@ func sendViewedMessage(videoPath string) {
 func run(log *slog.Logger) error {
 	port, found := os.LookupEnv(`PORT`)
 	if !found {
-		fmt.Errorf(`Please specify the port number for the HTTP server with the environment variable PORT.`)
+		return fmt.Errorf(`Please specify the port number for the HTTP server with the environment variable PORT.`)
 	}
 
 	mux := http.NewServeMux()
@@ -87,7 +86,7 @@ func run(log *slog.Logger) error {
 		w.Header().Add(contentLength, strconv.FormatInt(videoStats.Size(), 10))
 		w.Header().Add(contentType, "video/mp4")
 		io.Copy(w, videoReader)
-		sendViewedMessage(videoPath)
+		sendViewedMessage(log, videoPath)
 	})
 
 	log.Info(`Microservice online`)

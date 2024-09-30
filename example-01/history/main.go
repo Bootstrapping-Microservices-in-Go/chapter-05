@@ -19,7 +19,7 @@ func main() {
 func run(log *slog.Logger) error {
 	port, found := os.LookupEnv(`PORT`)
 	if !found {
-		fmt.Errorf(`Please specify the port number for the HTTP server with the environment variable PORT.`)
+		return fmt.Errorf(`Please specify the port number for the HTTP server with the environment variable PORT.`)
 	}
 
 	mux := http.NewServeMux()
