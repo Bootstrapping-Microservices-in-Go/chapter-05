@@ -18,6 +18,15 @@ type viewedMessageBody struct {
 	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := run(logger); err != nil {
+		logger.Error(`run failed`, `err`, err.Error())
+		os.Exit(1)
+	}
+}
+
 func run(log *slog.Logger) error {
 	port := os.Getenv(`PORT`)
 	dbhost := os.Getenv(`DBHOST`)
@@ -39,62 +48,67 @@ func run(log *slog.Logger) error {
 	failWithError(log, err, `amqp.Dial`)
 	defer conn.Close()
 
-	// Now we need to connect to the queue, consume messages.
+	// Create a channel to communicate with RabbitMQ.
 	ch, err := conn.Channel()
 	failWithError(log, err, `conn.Channel`)
 	defer ch.Close()
 
+	// Declare an exchange of type "fanout" so we can bind to it.
 	err = ch.ExchangeDeclare(
-		`Viewed`,
-		`fanout`,
-		true,
-		false,
-		false,
-		false,
-		nil)
+		`Viewed`, // Exchange name.
+		`fanout`, // Exchange type.
+		true,     // Durable?
+		false,    // Delete when unused.
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
 	failWithError(log, err, `ch.ExchangeDeclare`)
 
-	q, err := ch.QueueDeclare(
-		``,    // name
-		false, // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
+	// Declare a queue named "historyQueue".
+	// This queue will be used to store messages routed from the "Viewed" exchange.
+	historyQueue, err := ch.QueueDeclare(
+		`historyQueue`, // name
+		false,          // durable
+		false,          // delete when unused
+		false,          // exclusive
+		false,          // no-wait
+		nil,            // arguments
 	)
 	failWithError(log, err, `ch.QueueDeclare`)
 
-	// Bind the queue to the exchange.
+	// Bind the historyQueue to the exchange.
 	err = ch.QueueBind(
-		q.Name,
-		``,
-		`Viewed`,
-		false,
-		nil,
+		historyQueue.Name, // Queue name to bind,
+		``,                // routing key; not applicable for fanout exchanges
+		`Viewed`,          // Exchange name.
+		false,             // no-wait
+		nil,               // arguments
 	)
 	failWithError(log, err, `ch.QueueBind`)
 
+	// Create a channel to receive messages sent to our historyQueue.
 	msgs, err := ch.Consume(
-		q.Name, // queue
-		``,     // consumer
-		false,  // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
+		historyQueue.Name, // queue
+		``,                // consumer
+		false,             // auto-ack
+		false,             // exclusive
+		false,             // no-local
+		false,             // no-wait
+		nil,               // args
 	)
 	failWithError(log, err, `ch.Consume`)
 
 	go func() {
-		for d := range msgs {
+		for msg := range msgs {
 			var msgBody viewedMessageBody
-			bson.Unmarshal(d.Body, &msgBody)
+			bson.Unmarshal(msg.Body, &msgBody)
 
 			// Add to Mongo
 			res, err := collection.InsertOne(context.TODO(), msgBody)
 			failWithError(log, err, `collection.InsertOne`)
-			slog.Info(`collection.InsertOne`, `insertedId`, res.InsertedID)
-			d.Ack(true)
+			log.Info(`collection.InsertOne`, `insertedId`, res.InsertedID)
+			msg.Ack(true)
 		}
 	}()
 

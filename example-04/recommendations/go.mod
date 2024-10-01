@@ -1,4 +1,4 @@
-module github.com/bootstrapping-microservices-in-go/chapter-05/example-4/recommendations
+module bootstrapping-microservices-in-go/chapter-05/example-4/recommendations
 
 go 1.23.0
 

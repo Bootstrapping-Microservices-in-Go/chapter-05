@@ -48,8 +48,9 @@ func run(log *slog.Logger) error {
 	failWithError(log, err, `conn.Channel`)
 	defer ch.Close()
 
-	q, err := ch.QueueDeclare(
-		"viewed", // name
+	// Ensure the viewed queue exists.
+	viewedMessageQueue, err := ch.QueueDeclare(
+		`viewed`, // name
 		true,     // durable
 		false,    // delete when unused
 		false,    // exclusive
@@ -59,42 +60,48 @@ func run(log *slog.Logger) error {
 	failWithError(log, err, `ch.QueueDeclare`)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /video", func(w http.ResponseWriter, r *http.Request) {
-		videoPath := "./videos/SampleVideo_1280x720_1mb.mp4"
+	mux.HandleFunc(`GET /video`, func(w http.ResponseWriter, r *http.Request) {
+		videoPath := `./videos/SampleVideo_1280x720_1mb.mp4`
 		videoReader, err := os.Open(videoPath)
 		if err != nil {
+			log.Error(`/video.os.Open`, `err`, err.Error())
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		defer videoReader.Close()
 		videoStats, err := videoReader.Stat()
 		if err != nil {
+			log.Error(`/videoReader.Stat`, `err`, err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Add(contentLength, strconv.FormatInt(videoStats.Size(), 10))
-		w.Header().Add(contentType, "video/mp4")
+		w.Header().Add(contentType, `video/mp4`)
 		// use io.Copy for streaming.
 		io.Copy(w, videoReader)
-		sendViewedMessage(log, videoPath, ch, &q)
+		sendViewedMessage(log, videoPath, ch, &viewedMessageQueue)
 	})
 
-	return http.ListenAndServe(fmt.Sprint(":", port), mux)
+	log.Info(`Microservice online!`)
+	return http.ListenAndServe(fmt.Sprint(`:`, port), mux)
 }
 
 func sendViewedMessage(log *slog.Logger, path string, channel *amqp.Channel, queue *amqp.Queue) {
-	// Refactor to send to RabbitMQ.
 	body := viewedMessageBody{
 		VideoPath: path,
 	}
 
+	// Convert our payload into BSON; an optimized
+	// version of JSON.
 	payload, err := bson.Marshal(body)
 	if err != nil {
+		failWithError(log, err, `bson.Marshal`)
 		return
 	}
 
-	err = channel.Publish("", queue.Name, false, false, amqp.Publishing{
+	// Attempt to publish a message to the given queue.
+	err = channel.Publish(``, queue.Name, false, false, amqp.Publishing{
 		ContentType: `application/bson`,
 		Body:        payload,
 	})

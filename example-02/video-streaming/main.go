@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -32,12 +31,12 @@ func main() {
 func run(log *slog.Logger) error {
 	port, found := os.LookupEnv(`PORT`)
 	if !found {
-		log.Fatal(`Please specify the port number for the HTTP server with the environment variable PORT.`)
+		return fmt.Errorf(`Please specify the port number for the HTTP server with the environment variable PORT.`)
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /video", func(w http.ResponseWriter, r *http.Request) {
-		videoPath := "./videos/SampleVideo_1280x720_1mb.mp4"
+	mux.HandleFunc(`GET /video`, func(w http.ResponseWriter, r *http.Request) {
+		videoPath := `./videos/SampleVideo_1280x720_1mb.mp4`
 		videoReader, err := os.Open(videoPath)
 		if err != nil {
 			log.Error(`/video.os.Open`, `err`, err.Error())
@@ -47,38 +46,51 @@ func run(log *slog.Logger) error {
 		defer videoReader.Close()
 		videoStats, err := videoReader.Stat()
 		if err != nil {
-			log.Error(`/videoReader.stat`, `err`, err.Error())
+			log.Error(`/videoReader.Stat`, `err`, err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Add(contentLength, strconv.FormatInt(videoStats.Size(), 10))
-		w.Header().Add(contentType, "video/mp4")
+		w.Header().Add(contentType, `video/mp4`)
 		// use io.Copy for streaming.
 		io.Copy(w, videoReader)
-		sendViewedMessage(videoPath)
+		sendViewedMessage(log, videoPath)
 	})
 
-	http.ListenAndServe(fmt.Sprint(":", port), mux)
+	log.Info(`Microservice online!`)
+	return http.ListenAndServe(fmt.Sprint(`:`, port), mux)
 }
 
-func sendViewedMessage(path string) {
-	body := viewedMessageBody{
-		VideoPath: path,
+// Attempt to log the watched video to the history microservice upon a view.
+func sendViewedMessage(log *slog.Logger, videoPath string) {
+	// Create the request body
+	messageBody := viewedMessageBody{
+		VideoPath: videoPath,
 	}
 
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return
-	}
+	// Create a new POST request
+	req, _ := http.NewRequest(http.MethodPost, `http://history/viewed`, nil)
 
-	req, err := http.NewRequest(http.MethodPost, `http://history/viewed`, bytes.NewReader(payload))
-	if err != nil {
-		return
-	}
-	req.Header.Set(contentType, `application/json`)
+	// Set the content type header
+	req.Header.Set(`Content-Type`, `application/json`)
 
+	// Create a buffer to hold the JSON data
+	var jsonBuffer bytes.Buffer
+
+	// Use json.NewEncoder to encode the request body directly into the request
+	json.NewEncoder(&jsonBuffer).Encode(messageBody)
+
+	// Send the request
 	client := &http.Client{}
-	_, err = client.Do(req)
-	log.Print("Viewed")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Error(`Failed to send 'viewed' message!`)
+		log.Error(err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	// Log the success.
+	log.Error(`Sent 'viewed' message to history microservice.`)
 }

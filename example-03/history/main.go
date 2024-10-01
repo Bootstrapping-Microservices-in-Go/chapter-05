@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -53,8 +54,10 @@ func run(log *slog.Logger) error {
 	failWithError(log, err, `conn.Channel`)
 	defer ch.Close()
 
-	q, err := ch.QueueDeclare(
-		"viewed", // name
+	// Ensure the viewed queue exists in RabbitMQ;
+	// create if necessary.
+	viewedMessageQueue, err := ch.QueueDeclare(
+		`viewed`, // name
 		true,     // durable
 		false,    // delete when unused
 		false,    // exclusive
@@ -63,66 +66,77 @@ func run(log *slog.Logger) error {
 	)
 	failWithError(log, err, `ch.QueueDeclare`)
 
+	// Create a message retrieval channel now
+	// that we know the `viewed` queue exists.
 	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		false,  // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
+		viewedMessageQueue.Name, // queue
+		``,                      // consumer
+		false,                   // auto-ack
+		false,                   // exclusive
+		false,                   // no-local
+		false,                   // no-wait
+		nil,                     // args
 	)
 	failWithError(log, err, `ch.Consume`)
 
 	go func() {
-		for d := range msgs {
+		// Retrieve every message in the viewedMessageQueue.
+		// Do we know who sent it?  No, but that's the beauty
+		// of it.
+		for msg := range msgs {
 			var msgBody viewedMessageBody
-			bson.Unmarshal(d.Body, &msgBody)
+			bson.Unmarshal(msg.Body, &msgBody)
 
-			// Add to Mongo
+			// Store msgBody into our collection.
 			res, err := collection.InsertOne(context.TODO(), msgBody)
 			failWithError(log, err, `collection.InsertOne`)
-			slog.Info(`collection.InsertOne`, `insertedId`, res.InsertedID)
-			d.Ack(true)
+			log.Info(`collection.InsertOne`, `insertedId`, res.InsertedID)
+			// Acknowledge the message receipt so it can be deleted.
+			msg.Ack(true)
 		}
 	}()
 
 	// The viewed handler is no longer necessary since we're pulling from the
 	// queue.  But we do need an endpoint that will print our view history.
 	mux := http.NewServeMux()
+	// That's where /history comes in.
 	mux.HandleFunc(`GET /history`, func(w http.ResponseWriter, r *http.Request) {
+		// Retrieve a list of limit messages after the first skip many.
 		skip, limit := r.FormValue(`skip`), r.FormValue(`limit`)
 		skipInt, _ := strconv.Atoi(skip)
 		limitInt, _ := strconv.Atoi(limit)
-		w.Header().Add("Content-Type", "plain/text")
+		// Set the find option parameters.
 		findOptions := options.Find().
 			SetSkip(int64(skipInt)).
 			SetLimit(int64(limitInt))
 
+		// Find every entry.  Ignore the first skipInt,
+		// retrieve up to limitInt.
 		cursor, err := collection.Find(context.TODO(), bson.D{}, findOptions)
 		warnOnNonFatalError(log, err, `/history.collection.Find`)
 
-		var results []struct {
-			VideoPath string
-		}
-
+		// Create storage space for our query and retrieve.
+		var results []viewedMessageBody
 		err = cursor.All(context.TODO(), &results)
 		warnOnNonFatalError(log, err, `/history.Cursor.All`)
 
-		for _, result := range results {
-			log.Info(`cursor.All`, `videoPath`, result.VideoPath)
-		}
+		// Return the results as a JSON body.
+		json.NewEncoder(w).Encode(results)
 	})
 
-	return http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
+	// Start the server.
+	log.Info(`Microservice online.`)
+	return http.ListenAndServe(fmt.Sprintf(`:%s`, port), mux)
 }
 
+// warnOnNonFatalError logs errors without stopping the program.
 func warnOnNonFatalError(log *slog.Logger, err error, msg string) {
 	if err != nil {
 		log.Error(msg, `error`, err)
 	}
 }
 
+// failWithError logs the error and stops the program.
 func failWithError(log *slog.Logger, err error, msg string) {
 	if err != nil {
 		log.Error(msg, `error`, err)

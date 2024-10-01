@@ -23,9 +23,9 @@ func run(log *slog.Logger) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(`GET /viewed`, func(w http.ResponseWriter, r *http.Request) {
 	})
 
 	log.Info(`Microservice online`)
-	return http.ListenAndServe(fmt.Sprint(":", port), mux)
+	return http.ListenAndServe(fmt.Sprint(`:`, port), mux)
 }

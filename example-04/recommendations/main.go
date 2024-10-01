@@ -25,30 +25,21 @@ func main() {
 
 func run(log *slog.Logger) error {
 	port := os.Getenv(`PORT`)
-	// dbhost := os.Getenv(`DBHOST`)
-	// dbname := os.Getenv(`DBNAME`)
 	rabbit := os.Getenv(`RABBIT`)
-
-	// Connect to Mongo
-	// // https://pkg.go.dev/go.mongodb.org/mongo-driver/mongo
-	// clientOpts := options.Client().
-	// 	ApplyURI(dbhost)
-	// client, err := mongo.Connect(context.TODO(), clientOpts)
-	// failWithError(log, err, "Failed to connect to MongoDB")
-
-	// collection := client.Database(dbname).Collection(`history`)
-	// defer client.Disconnect(context.TODO())
 
 	// Connect to RabbitMQ
 	conn, err := amqp.Dial(rabbit)
 	failWithError(log, err, `amqp.Dial`)
 	defer conn.Close()
 
-	// Now we need to connect to the queue, consume messages.
+	// Create a channel to communicate with RabbitMQ.
 	ch, err := conn.Channel()
 	failWithError(log, err, `conn.Channel`)
 	defer ch.Close()
 
+	// Declare an exchange of type "fanout".
+	// This exchange will route messages to all queues bound to it,
+	// allowing for broadcast messaging to multiple consumers.
 	err = ch.ExchangeDeclare(
 		`Viewed`,
 		`fanout`,
@@ -59,36 +50,39 @@ func run(log *slog.Logger) error {
 		nil)
 	failWithError(log, err, `ch.ExchangeDeclare`)
 
-	q, err := ch.QueueDeclare(
-		``,    // name
-		false, // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
+	// Declare a queue named "recommendationsQueue".
+	// This queue will be used to store messages routed from the "Viewed" exchange.
+	recommendationsQueue, err := ch.QueueDeclare(
+		`recommendationsQueue`, // name
+		false,                  // durable
+		false,                  // delete when unused
+		false,                  // exclusive
+		false,                  // no-wait
+		nil,                    // arguments
 	)
 	failWithError(log, err, `ch.QueueDeclare`)
 
-	// Bind the queue to the exchange.
+	// Bind the recommendationsQueue to the exchange.
 	err = ch.QueueBind(
-		q.Name,
-		``,
-		`Viewed`,
-		false,
-		nil,
+		recommendationsQueue.Name, // Queue name to bind,
+		``,                        // routing key; not applicable for fanout exchanges
+		`Viewed`,                  // Exchange name.
+		false,                     // no-wait
+		nil,                       // arguments
 	)
 	failWithError(log, err, `ch.QueueBind`)
 
+	// Create a channel to receive messages sent to our recommendationsQueue.
 	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		false,  // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
+		recommendationsQueue.Name, // queue
+		``,                        // consumer
+		false,                     // auto-ack
+		false,                     // exclusive
+		false,                     // no-local
+		false,                     // no-wait
+		nil,                       // args
 	)
-	failWithError(log, err, "Failed to register a consumer")
+	failWithError(log, err, `ch.Consume`)
 
 	go func() {
 		for d := range msgs {
@@ -101,7 +95,8 @@ func run(log *slog.Logger) error {
 
 	mux := http.NewServeMux()
 	log.Info(`Microservice online!`)
-	return http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
+	// We're simply starting this server as a demo.
+	return http.ListenAndServe(fmt.Sprintf(`:%s`, port), mux)
 }
 
 func failWithError(log *slog.Logger, err error, msg string) {

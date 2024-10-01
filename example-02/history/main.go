@@ -42,7 +42,7 @@ func run(log *slog.Logger) error {
 		ApplyURI(dbhost)
 	client, err := mongo.Connect(context.TODO(), clientOpts)
 	if err != nil {
-		return fmt.Errorf("failed to connect to MongoDB: %s", err)
+		return fmt.Errorf(`failed to connect to MongoDB: %s`, err)
 	}
 	collection := client.Database(dbname).Collection(`history`)
 
@@ -65,14 +65,8 @@ func run(log *slog.Logger) error {
 			return
 		}
 
-		// print Added video ${videoPath} to history.
 		log.Info(`add`, `videoPath`, messageBody.VideoPath)
-
 		w.WriteHeader(http.StatusOK)
-
-		// Send a POST request to http://history/viewed
-		// JSON-encoded.  On failure: Failed to send 'viewed' message!
-		// On success: Sent 'viewed' message to history microservice.
 	})
 
 	mux.HandleFunc(`GET /history`, func(w http.ResponseWriter, r *http.Request) {
@@ -89,9 +83,9 @@ func run(log *slog.Logger) error {
 			return
 		}
 
-		findOptions := options.Find()
-		findOptions.SetSkip(int64(skipInt))
-		findOptions.SetLimit(int64(limitInt))
+		findOptions := options.Find().
+			SetSkip(int64(skipInt)).
+			SetLimit(int64(limitInt))
 
 		cursor, err := collection.Find(context.Background(), bson.D{}, findOptions)
 		if err != nil {
@@ -109,13 +103,8 @@ func run(log *slog.Logger) error {
 		}
 
 		json.NewEncoder(w).Encode(history)
-
-		// Send a GET request to http://history/history
-		// skip, limit parameters.
-		// Return as json.NewEncoder().Encode(history)
-		// return 200.
 	})
 
 	log.Info(`Microservice online!`)
-	return http.ListenAndServe(fmt.Sprintf(":%s", port), mux)
+	return http.ListenAndServe(fmt.Sprintf(`:%s`, port), mux)
 }

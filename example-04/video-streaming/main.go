@@ -21,6 +21,15 @@ type viewedMessageBody struct {
 	VideoPath string `json:"videoPath" bson:"videoPath"`
 }
 
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := run(logger); err != nil {
+		logger.Error(`run failed`, `err`, err.Error())
+		os.Exit(1)
+	}
+}
+
 func run(log *slog.Logger) error {
 	port, found := os.LookupEnv(`PORT`)
 	if !found {
@@ -31,35 +40,27 @@ func run(log *slog.Logger) error {
 
 	// Connect to RabbitMQ
 	conn, err := amqp.Dial(rabbit)
-	failWithError(log, err, `Failed to connect to RabbitMQ`)
+	failWithError(log, err, `amqp.Dial`)
 	defer conn.Close()
 
-	// Now we need to connect to the queue, consume messages.
+	// Create a channel to communicate with RabbitMQ.
 	ch, err := conn.Channel()
-	failWithError(log, err, `Failed to open a channel`)
+	failWithError(log, err, `conn.Channel`)
 	defer ch.Close()
 
+	// Declare an exchange of type "fanout".
+	// This exchange will route messages to all queues bound to it,
+	// allowing for broadcast messaging to multiple consumers.
 	err = ch.ExchangeDeclare(
-		`Viewed`,
-		`fanout`,
-		true,
-		false,
-		false,
-		false,
-		nil)
-	failWithError(log, err, `Failed to declare an exchange`)
-
-	q, err := ch.QueueDeclare(
-		``,    // name
-		true,  // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
+		`Viewed`, // Exchange name.
+		`fanout`, // Exchange type.
+		true,     // Durable?
+		false,    // Delete when unused.
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
 	)
-	failWithError(log, err, `Failed to declare a queue`)
-
-	ch.QueueBind(q.Name, ``, `Viewed`, false, nil)
+	failWithError(log, err, `ch.ExchangeDeclare`)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(`GET /video`, func(w http.ResponseWriter, r *http.Request) {
@@ -80,14 +81,14 @@ func run(log *slog.Logger) error {
 		w.Header().Add(contentType, `video/mp4`)
 		// use io.Copy for streaming.
 		io.Copy(w, videoReader)
-		sendViewedMessage(log, videoPath, ch, &q)
+		sendViewedMessage(log, videoPath, ch)
 	})
 
 	log.Info(`Microservice online!`)
 	return http.ListenAndServe(fmt.Sprint(`:`, port), mux)
 }
 
-func sendViewedMessage(log *slog.Logger, path string, channel *amqp.Channel, queue *amqp.Queue) {
+func sendViewedMessage(log *slog.Logger, path string, channel *amqp.Channel) {
 	// Refactor to send to RabbitMQ.
 	body := viewedMessageBody{
 		VideoPath: path,
@@ -98,7 +99,7 @@ func sendViewedMessage(log *slog.Logger, path string, channel *amqp.Channel, que
 		return
 	}
 
-	err = channel.Publish(`Viewed`, queue.Name, false, false, amqp.Publishing{
+	err = channel.Publish(`Viewed`, ``, false, false, amqp.Publishing{
 		ContentType: `application/bson`,
 		Body:        payload,
 	})

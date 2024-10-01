@@ -1,4 +1,4 @@
-module github.com/bootstrapping-microservices-in-go/chapter-05/example-3/video-streaming
+module bootstrapping-microservices-in-go/chapter-05/example-3/video-streaming
 
 go 1.23.1
 
